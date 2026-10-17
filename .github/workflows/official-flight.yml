@@ -19,13 +19,13 @@ on:
         required: false
         default: '320x200'
       rvfb_res:
-        description: 'rviz 虚拟屏分辨率 WxH（这是要交付的画面）'
+        description: 'rviz 虚拟屏分辨率 WxH（这是要交付的画面；左右 dock 各吃 ~300 px，所以给宽一点）'
         required: false
-        default: '1024x640'
+        default: '1280x640'
       capfps:
         description: '录屏帧率'
         required: false
-        default: '12'
+        default: '10'
       rviz_fps:
         description: 'rviz 自身重绘帧率'
         required: false
@@ -33,7 +33,7 @@ on:
       flight_secs:
         description: '飞行墙钟时长 [s]（圆周周期 12.57 s）'
         required: false
-        default: '55'
+        default: '45'
       arm_key:
         description: 'Unity 上电键（留空 = 不发键）'
         required: false
@@ -45,7 +45,7 @@ on:
       upscale:
         description: '上采样交付分辨率（留空 = 不上采样）'
         required: false
-        default: '1280x800'
+        default: '1600x800'
       unity_boot_wait:
         description: '等 Unity 监听器就绪的超时 [s]'
         required: false

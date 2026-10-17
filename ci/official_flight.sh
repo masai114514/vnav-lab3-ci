@@ -51,13 +51,15 @@ DISP_RVIZ="${DISP_RVIZ:-:98}"
 # Unity 侧：只喂物理，不上镜 —— 用低分辨率把 CPU 让给控制环与 rviz。
 # （lab4 实测：640x400 → 控制器 45% 时间拿不到新状态；320x200 后开环占比压到 1.3%）
 RES="${RES:-320x200}"
-# rviz 侧：这是要交付的画面，分辨率不能太寒酸；但 llvmpipe 是纯 CPU 光栅化，
-# 1024x640 已是 4 vCPU 上能接受的折中（再大 rviz 自己会掉帧）。
-RVFB_RES="${RVFB_RES:-1024x640}"
-CAPFPS="${CAPFPS:-12}"          # 录屏帧率
+# rviz 侧：这是要交付的画面。llvmpipe 是纯 CPU 光栅化，像素数直接换帧率，
+# 但 1024x640 下左右两块 dock 把 3D 视口挤成 ~390x505 的竖条（圆的左右两端会被
+# 视口边界切掉，第四趟实拍）。1280x640 只加宽不加高：总像素 +25%，视口却宽了 70%
+# （~660x505），圆能完整落在里面，帧率仍够 10 fps（第四趟 12.1 fps @1024x640）。
+RVFB_RES="${RVFB_RES:-1280x640}"
+CAPFPS="${CAPFPS:-10}"          # 录屏帧率
 RVIZ_FPS="${RVIZ_FPS:-20}"      # rviz 自身重绘帧率（与录屏帧率解耦）
 
-UPSCALE="${UPSCALE:-}"
+UPSCALE="${UPSCALE:-1600x800}"
 CTRL_NICE="${CTRL_NICE:-5}"     # 控制栈 nice（正数 = 降 5 档）
 UNITY_NICE="${UNITY_NICE:-10}"  # Unity / rviz / 录屏 nice
 LP_NUM_THREADS="${LP_NUM_THREADS:-2}"
@@ -66,8 +68,9 @@ UNITY_BOOT_WAIT="${UNITY_BOOT_WAIT:-240}"
 UNITY_SETTLE="${UNITY_SETTLE:-8}"
 BRIDGE_WAIT="${BRIDGE_WAIT:-120}"
 # 飞行墙钟时长。圆周周期 = 2*pi*timeScale = 2*pi*2 = 12.57 s（traj_publisher.cpp），
-# 55 s ≈ 4 圈多一点：足够把「从出生点飞入 + 稳定 + 完整一圈」全覆盖。
-FLIGHT_SECS="${FLIGHT_SECS:-55}"
+# 45 s ≈ 3.6 圈：起飞瞬态（0–3 s，实测会出现一次翻覆级姿态）+ 稳定 + 至少两整圈，
+# 留足"飞满一圈"的证据，又不会让产物（bag / mp4）无谓变大。
+FLIGHT_SECS="${FLIGHT_SECS:-45}"
 
 ARM_KEY="${ARM_KEY-w}"
 ARM_DELAY="${ARM_DELAY:-5}"

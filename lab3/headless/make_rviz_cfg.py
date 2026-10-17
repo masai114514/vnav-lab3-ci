@@ -83,11 +83,16 @@ def main() -> int:
         if d.get("Class") == "rviz/Odometry":
             d["Keep"] = 1
             d["Shape"]["Value"] = "Axes"
-            d["Shape"]["Axes Length"] = 1.0     # 沿用官方，18 m 机位下刚好能看清是台机子
+            d["Shape"]["Axes Length"] = 1.0     # 沿用官方，21 m 机位下刚好能看清是台机子
             d["Shape"]["Axes Radius"] = 0.10
             # 协方差椭球必须关：官方默认开着，每帧都在位姿处糊一团粉蓝色半透明球
             d["Covariance"]["Value"] = False
             d["Position Tolerance"] = 0.05
+        elif d.get("Class") == "rviz/Grid":
+            # 官方的 10x10 m 网格正好在半径 5 m 的圆上收边，看着像"圆掉出地板"。
+            # 铺成 20x20 m，圆心就落在网格中间。
+            d["Plane Cell Count"] = 20
+            d["Alpha"] = 0.4
 
     # 期望轨迹画在下面、实际轨迹压在上面（红压蓝，和报告里"红=实际"一致）
     # ⚠️ 显示名一律用 **ASCII**：CI 容器里没有中文字体，中文会被 Qt 渲染成一排方块
@@ -102,9 +107,12 @@ def main() -> int:
 
     view = vm.setdefault("Views", {}).setdefault("Current", {})
     view["Class"] = "rviz/Orbit"
-    # 半径 5 m 的圆（直径 10 m）。距离 18 m + 默认 ~55° 水平 FOV → 画面横向可见
-    # 约 18 m，圆占约 55% 宽，既留边又不至于像 24 m 那样"小小一圈"。
-    view["Distance"] = 18.0
+    # 半径 5 m 的圆（直径 10 m）。实际视口不是整窗 —— 左侧 Displays 与右侧 Views
+    # 两块 dock 会各吃掉 ~300 px（`Hide Left/Right Dock` 这两键在 noetic 的 rviz 里
+    # 会被 `QMainWindow State` 的 restoreState 覆盖回去，实测无效）。1024x640 的
+    # 虚拟屏上视口只剩 ~390x505（竖条），距离 18 m 时圆的左右两端会被视口边界切掉
+    # （第四趟实拍）。所以：虚拟屏加宽到 1280x640、机位退到 21 m，圆就完整落在视口里。
+    view["Distance"] = 21.0
     view["Focal Point"] = {"X": 0.0, "Y": 0.0, "Z": 2.0}
     view["Pitch"] = 0.52                    # 俯角 ~30°，能看出高度与圆周的立体关系
     view["Yaw"] = 0.9
