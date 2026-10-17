@@ -36,6 +36,11 @@
 
 set -uo pipefail
 
+# ROS Noetic 从 2025-05 起 EOL，新版 rviz/roslaunch 会弹一个**模态**对话框
+# （"ROS Noetic goes end-of-life ..."）。模态框在 Xvfb 里没人点，rviz 会一直堵在
+# 那里 —— 第一趟录出来的视频就是一帧静止的弹窗。这个环境变量是官方给的正解。
+export DISABLE_ROS1_EOL_WARNINGS=1
+
 OUT="${OUT:-$PWD/out}"
 BUNDLE="${BUNDLE:-$PWD/lab3}"
 
@@ -443,10 +448,10 @@ fi
 # =============================================================================
 # 7. rviz（:98，专供录屏）+ 轨迹记录节点
 # =============================================================================
-say "生成 rviz 配置（官方 lab3.rviz + 两条 Path）"
+say "生成 rviz 配置（官方 lab3.rviz + 两条 Path，几何按 ${RVFB_RES}）"
 python3 "$BUNDLE/headless/make_rviz_cfg.py" \
     --src "$WS/src/controller_pkg/rviz/lab3.rviz" \
-    --out "$OUT/lab3_flight.rviz" --fps "$RVIZ_FPS" \
+    --out "$OUT/lab3_flight.rviz" --fps "$RVIZ_FPS" --size "$RVFB_RES" \
     || die "生成 rviz 配置失败"
 note "配置：$OUT/lab3_flight.rviz"
 
@@ -473,8 +478,17 @@ if [ -n "${RVID:-}" ]; then
   DISPLAY="$DISP_RVIZ" xdotool windowsize "$RVID" "${RVFB_RES%x*}" "${RVFB_RES#*x}" 2>/dev/null || true
   DISPLAY="$DISP_RVIZ" xdotool windowraise "$RVID" 2>/dev/null || true
   note "rviz 窗口 id=$RVID，已铺满 ${RVFB_RES}"
-  sleep 3
+  # 兜底：万一还有别的模态对话框（EOL 提示、Qt 警告），用 Esc 关掉；
+  # 没有对话框时 Esc 对 rviz 主窗口无副作用。
+  sleep 2
+  DISPLAY="$DISP_RVIZ" xdotool key --clearmodifiers Escape 2>/dev/null || true
+  sleep 4
   DISPLAY="$DISP_RVIZ" import -window root "$OUT/rviz_preflight.png" 2>/dev/null || true
+  # 判一下画面不是纯黑/纯白（llvmpipe 下 rviz 起不来时就是一片黑）
+  if [ -f "$OUT/rviz_preflight.png" ]; then
+    STAT="$(convert "$OUT/rviz_preflight.png" -colorspace Gray -format "%[fx:standard_deviation]" info: 2>/dev/null || echo 1)"
+    note "预检画面标准差 = $STAT（<0.01 说明还是空白）"
+  fi
 else
   warn "没找到 rviz 窗口 —— 见 $OUT/rviz.log；视频可能是空的"
   tail -20 "$OUT/rviz.log" | indent || true
@@ -529,10 +543,10 @@ PIDS+=("$!")
 say "飞行 ${FLIGHT_SECS}s（圆周周期 12.57 s）"
 for i in $(seq 1 "$FLIGHT_SECS"); do
   sleep 1
-  if [ $((i % 10)) -eq 0 ]; then
-    printf '    +%2ds  /current_state=%s  /rotor_speed_cmds=%s\n' "$i" \
-      "$(timeout 4 bash -c 'rostopic hz /current_state 2>&1 | grep -o "average rate: [0-9.]*" | head -1' || echo '?')" \
-      "$(timeout 4 bash -c 'rostopic hz /rotor_speed_cmds 2>&1 | grep -o "average rate: [0-9.]*" | head -1' || echo '?')" || true
+  if [ $((i % 15)) -eq 0 ]; then
+    # 注意：rostopic hz 自身要采几秒，别每 10 s 就打一次 —— 会把墙钟拉长
+    printf '    +%2ds  /current_state: %s\n' "$i" \
+      "$(timeout 4 bash -c 'rostopic hz /current_state 2>&1 | grep -o "average rate: [0-9.]*" | head -1' || echo '?')" || true
   fi
 done
 

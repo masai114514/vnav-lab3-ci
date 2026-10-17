@@ -53,6 +53,8 @@ def main() -> int:
     ap.add_argument("--src", required=True, help="官方 lab3.rviz")
     ap.add_argument("--out", required=True, help="输出路径")
     ap.add_argument("--fps", type=int, default=20, help="rviz 重绘帧率")
+    ap.add_argument("--size", default=None,
+                    help="目标窗口尺寸 WxH；不传则沿用官方存档几何")
     args = ap.parse_args()
 
     with open(args.src, encoding="utf-8") as f:
@@ -94,6 +96,21 @@ def main() -> int:
     view["Yaw"] = 0.9
     view["Target Frame"] = "<Fixed Frame>"  # 官方里写的 base_link_gt 在 lab3 不一定存在
     view["Near Clip Distance"] = 0.01
+
+    # ---- 窗口几何 --------------------------------------------------------
+    # 官方存档是 1920x1052 @ (339,181)，放进 1024x640 的 Xvfb 里会被裁掉一大半
+    # （第一趟就是因此只录到一个角落 + 一个弹窗）。
+    # 而且 `QMainWindow State` 是一串二进制 QByteArray，里面把各 dock 的像素尺寸
+    # 焊死了 —— 只改 Width/Height 不删它，面板还会按老尺寸铺，3D 视口被挤没。
+    wg = cfg.setdefault("Window Geometry", {})
+    wg.pop("QMainWindow State", None)
+    wg["Hide Left Dock"] = False
+    wg["Hide Right Dock"] = False
+    if args.size:
+        w, h = args.size.lower().split("x")
+        wg["Width"], wg["Height"] = int(w), int(h)
+        wg["X"], wg["Y"] = 0, 0
+        print("[rviz-cfg] 窗口几何 %sx%s @(0,0)，已删除 QMainWindow State" % (w, h))
 
     with open(args.out, "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
