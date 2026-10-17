@@ -578,6 +578,69 @@ sleep 4
 [ -n "${FFMPEG_PID:-}" ] && kill "$FFMPEG_PID" 2>/dev/null || true
 sleep 1
 
+# =============================================================================
+# 9b. 视频自检：真实帧率 + 全程是否真的在动
+# -----------------------------------------------------------------------------
+# 前两趟的教训——「录了 40 s、文件有几十 MB、能播」完全不代表画面在动：
+# 第一趟全程一个 EOL 弹窗，第二趟全程一张静止的 rviz 空布局。所以第 10 s 抓两帧
+# 比 MD5 只能证明「那一刻在动」，不能证明整段在动。这里改成**等距抽 6 帧**、
+# 逐帧与首帧比 RMSE：任何一帧都贴着首帧，说明轨迹没画出来 / 相机被挡 / 服务卡死。
+# =============================================================================
+VIDF="$OUT/rviz_flight.mp4"
+if [ -f "$VIDF" ] && [ -s "$VIDF" ]; then
+  say "视频自检 → $OUT/video_check.txt"
+  VDUR="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VIDF" 2>/dev/null | head -1)"
+  VDUR="${VDUR%.*}"
+  VNFR="$(ffprobe -v error -select_streams v:0 -count_frames \
+            -show_entries stream=nb_read_frames -of csv=p=0 "$VIDF" 2>/dev/null | head -1)"
+  VFPS="$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
+            -of csv=p=0 "$VIDF" 2>/dev/null | head -1)"
+  {
+    echo "# rviz_flight.mp4 自检"
+    echo "容器帧率(标称) : $VFPS"
+    echo "实际总帧数     : ${VNFR:-?}"
+    echo "时长           : ${VDUR:-?} s"
+    if [ -n "${VNFR:-}" ] && [ -n "${VDUR:-}" ] && [ "${VDUR:-0}" -gt 0 ] 2>/dev/null; then
+      echo "平均真实帧率   : $(awk -v n="$VNFR" -v d="$VDUR" 'BEGIN{printf "%.2f", n/d}') fps"
+    fi
+    echo
+    echo "## 等距抽帧 vs 首帧 RMSE（0 = 完全静止）"
+  } > "$OUT/video_check.txt"
+
+  # 抽 6 帧：0, 1/6, 2/6, ... 时长
+  MOVING=0; TOTAL=0
+  : > "$OUT/.vframes"
+  for k in 0 1 2 3 4 5; do
+    T="$(awk -v k="$k" -v d="${VDUR:-30}" 'BEGIN{printf "%.2f", d*k/6}')"
+    F="$OUT/vchk_$k.png"
+    if ffmpeg -y -loglevel error -ss "$T" -i "$VIDF" -frames:v 1 "$F" 2>/dev/null && [ -f "$F" ]; then
+      echo "$T $F" >> "$OUT/.vframes"
+    fi
+  done
+  FIRST="$(head -1 "$OUT/.vframes" | awk '{print $2}')"
+  if [ -n "$FIRST" ]; then
+    while read -r T F; do
+      R="$(compare -metric RMSE "$FIRST" "$F" null: 2>&1 | awk '{print $1}')"
+      R="${R:-0}"
+      TOTAL=$((TOTAL + 1))
+      # RMSE < 300（满量程 65535）≈ 两张图基本一样 → 那一刻是静止的
+      if awk -v r="$R" 'BEGIN{exit !(r+0 >= 300)}'; then MOVING=$((MOVING + 1)); fi
+      printf '  t=%-6s RMSE=%-10s %s\n' "$T" "$R" "$F" | tee -a "$OUT/video_check.txt" | indent
+    done < "$OUT/.vframes"
+    echo "" >> "$OUT/video_check.txt"
+    echo "非静止帧: $MOVING / $TOTAL" >> "$OUT/video_check.txt"
+    if [ "$MOVING" -ge $((TOTAL - 1)) ]; then
+      note "视频全程有变化（$MOVING/$TOTAL 帧与首帧不同）"
+    else
+      warn "!! 视频 $((TOTAL - MOVING))/$TOTAL 帧与首帧几乎相同 —— 画面大半是静止的"
+    fi
+  fi
+  rm -f "$OUT/.vframes" "$OUT"/vchk_*.png
+else
+  warn "没有 rviz_flight.mp4，跳过视频自检"
+fi
+
+
 BAGF="$OUT/flight.bag"
 [ -f "$BAGF" ] || BAGF="$OUT/flight.bag.active"
 if [ -f "$BAGF" ]; then
