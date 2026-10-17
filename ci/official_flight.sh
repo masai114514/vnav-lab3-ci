@@ -543,8 +543,25 @@ PIDS+=("$!")
 say "飞行 ${FLIGHT_SECS}s（圆周周期 12.57 s）"
 for i in $(seq 1 "$FLIGHT_SECS"); do
   sleep 1
+  # ---- 画面是否真的在动？（前两趟都栽在"录了 40 s 其实只有 2 帧不同"上）----
+  if [ "$i" -eq 10 ]; then
+    DISPLAY="$DISP_RVIZ" import -window root "$OUT/anim_a.png" 2>/dev/null || true
+    sleep 3
+    DISPLAY="$DISP_RVIZ" import -window root "$OUT/anim_b.png" 2>/dev/null || true
+    if [ -f "$OUT/anim_a.png" ] && [ -f "$OUT/anim_b.png" ]; then
+      if cmp -s "$OUT/anim_a.png" "$OUT/anim_b.png"; then
+        warn "!! rviz 画面 3 s 内完全没变（MD5 相同）—— 3D 视口可能被面板盖住或没渲染"
+        echo "STATIC" > "$OUT/anim_check.txt"
+      else
+        note "rviz 画面在动（3 s 内两帧不同）"
+        # 再量一个"变化幅度"，太低说明视口很小
+        DIFF="$(compare -metric RMSE "$OUT/anim_a.png" "$OUT/anim_b.png" null: 2>&1 | awk '{print $1}')"
+        note "两帧 RMSE = $DIFF（越小越静止）"
+        echo "MOVING rmse=$DIFF" > "$OUT/anim_check.txt"
+      fi
+    fi
+  fi
   if [ $((i % 15)) -eq 0 ]; then
-    # 注意：rostopic hz 自身要采几秒，别每 10 s 就打一次 —— 会把墙钟拉长
     printf '    +%2ds  /current_state: %s\n' "$i" \
       "$(timeout 4 bash -c 'rostopic hz /current_state 2>&1 | grep -o "average rate: [0-9.]*" | head -1' || echo '?')" || true
   fi

@@ -99,18 +99,26 @@ def main() -> int:
 
     # ---- 窗口几何 --------------------------------------------------------
     # 官方存档是 1920x1052 @ (339,181)，放进 1024x640 的 Xvfb 里会被裁掉一大半
-    # （第一趟就是因此只录到一个角落 + 一个弹窗）。
-    # 而且 `QMainWindow State` 是一串二进制 QByteArray，里面把各 dock 的像素尺寸
-    # 焊死了 —— 只改 Width/Height 不删它，面板还会按老尺寸铺，3D 视口被挤没。
+    # （第一趟就是因此只录到一个角落 + 一个弹窗）。所以把尺寸改成虚拟屏大小。
+    #
+    # ⚠️ 但 `QMainWindow State` **不能删**：那一串是 QMainWindow::saveState() 的
+    #    QByteArray，里面记着各 dock 的位置/大小。删掉后 Qt 会用默认布局，实测
+    #    Displays/Selection/Tool Properties/Views 四块把整个窗口铺满，**3D 视口
+    #    一条缝都不剩**（第二趟就是这么录的）。保留它、只改外框尺寸，Qt 会把
+    #    dock 宽度夹到新窗口里，视口就能正常露出来。
     wg = cfg.setdefault("Window Geometry", {})
-    wg.pop("QMainWindow State", None)
     wg["Hide Left Dock"] = False
     wg["Hide Right Dock"] = False
     if args.size:
         w, h = args.size.lower().split("x")
         wg["Width"], wg["Height"] = int(w), int(h)
         wg["X"], wg["Y"] = 0, 0
-        print("[rviz-cfg] 窗口几何 %sx%s @(0,0)，已删除 QMainWindow State" % (w, h))
+        print("[rviz-cfg] 窗口几何 %sx%s @(0,0)（保留 QMainWindow State）" % (w, h))
+
+    # 左侧 Displays 树别占太高的竖向空间（官方存的是 755 px，1024x640 下太挤）
+    for panel in (cfg.get("Panels") or []):
+        if panel.get("Class") == "rviz/Displays" and "Tree Height" in panel:
+            panel["Tree Height"] = 360
 
     with open(args.out, "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
