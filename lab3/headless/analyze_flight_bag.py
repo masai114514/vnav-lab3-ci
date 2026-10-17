@@ -313,45 +313,58 @@ def main() -> int:
         print("  " + v)
 
     # ---- 图 --------------------------------------------------------------
+    # ⚠️ 图里的文字一律用 **ASCII**：CI 容器里没有中文字体，写中文会被 matplotlib
+    #    渲成一排豆腐块（□□□），而且这张图会直接进报告与 release。
     if args.plot:
         fig = plt.figure(figsize=(12.6, 7.2))
         gs = fig.add_gridspec(2, 2, hspace=0.32, wspace=0.24)
 
         ax = fig.add_subplot(gs[0, 0])
-        ax.plot(d["des_p"][:, 0], d["des_p"][:, 1], "--", color="#1f77b4", lw=1.6, label="desired")
-        ax.plot(d["cur_p"][:, 0], d["cur_p"][:, 1], "-", color="#d62728", lw=1.4, label="actual")
-        ax.scatter(d["cur_p"][0, 0], d["cur_p"][0, 1], marker="X", s=70, c="k", zorder=5, label="takeoff")
+        ax.plot(d["des_p"][:, 0], d["des_p"][:, 1], "--", color="#1f77b4", lw=1.8,
+                label="desired (reference)")
+        # 全时段轨迹画成浅灰，最后一圈用红色压上去 —— 一眼能看出"收敛后贴合"
+        ax.plot(d["cur_p"][:, 0], d["cur_p"][:, 1], "-", color="0.72", lw=1.0,
+                label="actual, whole run")
+        last = tc >= max(0.0, tc[-1] - PERIOD)
+        ax.plot(d["cur_p"][last, 0], d["cur_p"][last, 1], "-", color="#d62728", lw=1.6,
+                label="actual, last lap")
+        ax.scatter(d["cur_p"][0, 0], d["cur_p"][0, 1], marker="X", s=80, c="k",
+                   zorder=5, label="start (spawn)")
         ax.set_aspect("equal"); ax.grid(alpha=.3)
         ax.set_xlabel("x [m]"); ax.set_ylabel("y [m]")
-        ax.set_title("(a) xy 俯视：实际 vs 期望（官方 Unity 实跑）", fontsize=10)
-        ax.legend(fontsize=8)
+        ax.set_title("(a) xy view: actual vs desired (Unity)", fontsize=10)
+        ax.legend(fontsize=7.5, loc="lower left")
 
         ax = fig.add_subplot(gs[0, 1])
         ax.semilogy(tc, err * 1e3, color="#d62728", lw=1.2)
         ax.axhline(100, color="gray", ls=":", lw=1)
         ax.set_xlabel("time [s]"); ax.set_ylabel("|e_p| [mm]")
         ax.grid(alpha=.3)
-        ax.set_title("(b) 位置误差（对数）", fontsize=10)
+        ax.set_title("(b) position error (log scale)", fontsize=10)
 
         ax = fig.add_subplot(gs[1, 0])
         ax.plot(tc, tilts, color="#2ca02c", lw=1.1)
         ax.axhline(45, color="gray", ls=":", lw=1)
         ax.set_xlabel("time [s]"); ax.set_ylabel("tilt [deg]")
         ax.grid(alpha=.3)
-        ax.set_title("(c) 倾角 |angle(R e3, e3)|", fontsize=10)
+        ax.set_title(r"(c) tilt angle $\angle(R e_3, e_3)$", fontsize=10)
 
         ax = fig.add_subplot(gs[1, 1])
         if len(d["rot_t"]):
             rt = d["rot_t"] - t0
             for i, c in enumerate(["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]):
-                ax.plot(rt, d["rot_w"][:, i], color=c, lw=0.9, label=r"$\omega_%d$" % (i + 1))
+                ax.plot(rt, d["rot_w"][:, i], color=c, lw=0.8, alpha=0.75,
+                        label=r"$\omega_%d$" % (i + 1))
             ax.axhline(W_HOVER, color="gray", ls=":", lw=1)
-        ax.set_xlabel("time [s]"); ax.set_ylabel("rotor [rad/s]")
+            ax.axhline(-W_HOVER, color="gray", ls=":", lw=1)
+        ax.set_xlabel("time [s]"); ax.set_ylabel("rotor speed [rad/s]")
         ax.grid(alpha=.3)
-        ax.set_title("(d) 四桨转速（虚线=悬停解析值 %.1f）" % W_HOVER, fontsize=10)
+        ax.set_title("(d) rotor speed commands (dotted = hover %.1f rad/s)" % W_HOVER,
+                     fontsize=9.5)
         ax.legend(fontsize=7, ncol=4)
 
-        fig.suptitle("LAB3 官方 Unity(TESSE) 实跑：圆周轨迹跟踪", fontsize=12.5, y=0.99)
+        fig.suptitle("LAB3 - official Unity(TESSE) run: circular trajectory tracking",
+                     fontsize=12.5, y=0.99)
         fig.savefig(args.plot, dpi=150, bbox_inches="tight")
         print("[analyze] 图：%s" % args.plot)
 
