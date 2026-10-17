@@ -1,0 +1,148 @@
+name: official-flight
+
+# MIT 16.485 VNAV Lab 3 —— 官方 Unity(TESSE) + rviz 链路
+#
+# 交付物 D3 要求「rviz 里飞满一圈的视频」。本机（Apple Silicon macOS）跑不了官方 Unity：
+# Xvfb 与 x86_64 容器都没问题，真正卡死的是 Mono 的 JIT trampoline 在 Rosetta 下
+# 越出 ±2 GB 约束而断言自杀（tramp-amd64.c:596）——结构性无解。
+# 所以搬到 GitHub Actions 的原生 x86_64 runner，用 `ros:noetic-ros-base` 容器拿到
+# 原版 focal + ROS Noetic，不需要任何 GPU 云机。
+on:
+  workflow_dispatch:
+    inputs:
+      probe_only:
+        description: '1 = 只验 Unity+桥接（不飞、不录），0 = 跑完整链路'
+        required: false
+        default: '0'
+      res:
+        description: 'Unity 渲染分辨率 WxH（不上镜，小一点省 CPU）'
+        required: false
+        default: '320x200'
+      rvfb_res:
+        description: 'rviz 虚拟屏分辨率 WxH（这是要交付的画面）'
+        required: false
+        default: '1024x640'
+      capfps:
+        description: '录屏帧率'
+        required: false
+        default: '12'
+      rviz_fps:
+        description: 'rviz 自身重绘帧率'
+        required: false
+        default: '20'
+      flight_secs:
+        description: '飞行墙钟时长 [s]（圆周周期 12.57 s）'
+        required: false
+        default: '55'
+      arm_key:
+        description: 'Unity 上电键（留空 = 不发键）'
+        required: false
+        default: 'w'
+      record_unity:
+        description: '1 = 顺带录 Unity 窗口（费 CPU）'
+        required: false
+        default: '0'
+      upscale:
+        description: '上采样交付分辨率（留空 = 不上采样）'
+        required: false
+        default: '1280x800'
+      unity_boot_wait:
+        description: '等 Unity 监听器就绪的超时 [s]'
+        required: false
+        default: '240'
+
+permissions:
+  contents: read
+
+jobs:
+  flight:
+    name: 官方 Unity 圆周飞行 + rviz 录屏
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    # --cap-add=SYS_NICE : 让控制栈的 `nice -n -5` 生效（Docker 默认能力集不含它）
+    # --shm-size=2g      : Unity 默认 64 MB /dev/shm 不够
+    container:
+      image: ros:noetic-ros-base
+      options: --user root --shm-size=2g --cap-add=SYS_NICE
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 容器 job 的默认 shell 是 sh(dash)，`set -o pipefail` 会直接报错 → 一律显式 bash。
+      - name: 环境信息
+        shell: bash
+        run: |
+          echo "vCPU = $(nproc)"
+          free -m | awk '/Mem:/{printf "内存 = %s MB\n", $2}'
+          echo "工作目录 = $PWD"
+
+      - name: 官方 Unity 圆周飞行链路
+        shell: bash
+        env:
+          PROBE_ONLY: ${{ inputs.probe_only }}
+          RES: ${{ inputs.res }}
+          RVFB_RES: ${{ inputs.rvfb_res }}
+          CAPFPS: ${{ inputs.capfps }}
+          RVIZ_FPS: ${{ inputs.rviz_fps }}
+          FLIGHT_SECS: ${{ inputs.flight_secs }}
+          ARM_KEY: ${{ inputs.arm_key }}
+          RECORD_UNITY: ${{ inputs.record_unity }}
+          UPSCALE: ${{ inputs.upscale }}
+          UNITY_BOOT_WAIT: ${{ inputs.unity_boot_wait }}
+        run: |
+          # 没有这行，`bash x.sh | tee log` 的退出码会被 tee 吃掉 → 空产物也判 success
+          set -o pipefail
+          export OUT="$PWD/out"
+          export BUNDLE="$PWD/lab3"
+          mkdir -p "$OUT"
+          echo "OUT=$OUT  BUNDLE=$BUNDLE"
+          bash ci/official_flight.sh 2>&1 | tee "$OUT/console.log"
+
+      - name: 上传产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-flight
+          # 不要写成 path: out/ —— 里面还躺着 lab3.zip(32 MB) 与解包的 Unity（几百 MB）
+          path: |
+            out/*.log
+            out/*.txt
+            out/*.json
+            out/*.csv
+            out/*.bag
+            out/*.mp4
+            out/*.png
+            out/*.rviz
+            out/roslog/**
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: 结论摘要
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Lab 3 官方 Unity 实跑 — 摘要"
+            echo
+            if [ -f out/metrics.json ]; then
+              echo '### metrics.json'
+              echo '```json'
+              cat out/metrics.json
+              echo '```'
+            else
+              echo '_没有 metrics.json（probe 模式或飞行未跑完）_'
+            fi
+            echo
+            if [ -f out/build_evidence.txt ]; then
+              echo '### catkin build 证据（报告里此前标为"未验证"，这次是真编过的）'
+              echo '```'
+              sed -n '1,30p' out/build_evidence.txt
+              echo '```'
+            fi
+            echo
+            echo '### 产物清单'
+            echo '```'
+            ls -la out/ 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
